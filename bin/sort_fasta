@@ -1,0 +1,23 @@
+#!/bin/bash
+
+awk '/^>/ { # If line starts with record header
+  # print \n if not first seq, and print header
+  printf("%s%s\t", (seq_num > 0 ? "\n" : ""), $0)
+
+  seq_num++
+
+  next
+}
+# else
+{
+  # still in a sequence, print it
+  printf("%s", $0)
+}
+
+END {
+  printf("\n")
+}' "$1" | \
+    awk -F '\t' '{ printf("%d\t%s\n", length($2), $0) }' | \
+    sort -k1,1n | \
+    cut -f 2,3 | \
+    tr "\t" "\n"

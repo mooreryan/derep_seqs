@@ -1,0 +1,3 @@
+bin/derep_seqs*
+src/*.o
+src/vendor/*.o
