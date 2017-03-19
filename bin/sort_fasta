@@ -18,6 +18,6 @@ END {
   printf("\n")
 }' "$1" | \
     awk -F '\t' '{ printf("%d\t%s\n", length($2), $0) }' | \
-    sort -k1,1n | \
+    sort -k1,1nr | \
     cut -f 2,3 | \
     tr "\t" "\n"

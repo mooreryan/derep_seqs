@@ -1,21 +1,21 @@
 /*
-Copyright 2017 Ryan Moore
-Contact: moorer@udel.edu
+  Copyright 2017 Ryan Moore
+  Contact: moorer@udel.edu
 
-This file is part of derep_seqs.
+  This file is part of derep_seqs.
 
-derep_seqs is free software: you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the
-Free Software Foundation, either version 3 of the License, or (at your
-option) any later version.
+  derep_seqs is free software: you can redistribute it and/or modify it
+  under the terms of the GNU General Public License as published by the
+  Free Software Foundation, either version 3 of the License, or (at your
+  option) any later version.
 
-derep_seqs is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-General Public License for more details.
+  derep_seqs is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include <string.h>
@@ -26,12 +26,51 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "vendor/kseq.h"
 #include "vendor/ssef.h"
+#include "vendor/hash3.h"
 #include "vendor/tommyarray.h"
 #include "pointers.h"
 #include "rseq.h"
 #include "kseq_helper.h"
 
-#define VERSION "0.1.0"
+#define VERSION "0.2.0"
+#define FILTER_SIZE 100
+
+/* from http://mgronhol.github.io/fast-strcmp/ */
+int fast_compare( const char *ptr0, const char *ptr1, int len ){
+  int fast = len/sizeof(size_t) + 1;
+  int offset = (fast-1)*sizeof(size_t);
+  int current_block = 0;
+
+  if( len <= sizeof(size_t)){ fast = 0; }
+
+
+  size_t *lptr0 = (size_t*)ptr0;
+  size_t *lptr1 = (size_t*)ptr1;
+
+  while( current_block < fast ){
+    if( (lptr0[current_block] ^ lptr1[current_block] )){
+      int pos;
+      for(pos = current_block*sizeof(size_t); pos < len ; ++pos ){
+        if( (ptr0[pos] ^ ptr1[pos]) || (ptr0[pos] == 0) || (ptr1[pos] == 0) ){
+          return  (int)((unsigned char)ptr0[pos] - (unsigned char)ptr1[pos]);
+        }
+      }
+    }
+
+    ++current_block;
+  }
+
+  while( len > offset ){
+    if( (ptr0[offset] ^ ptr1[offset] )){
+      return (int)((unsigned char)ptr0[offset] - (unsigned char)ptr1[offset]);
+    }
+    ++offset;
+  }
+
+
+  return 0;
+}
+
 
 int
 main(int argc, char *argv[])
@@ -45,6 +84,15 @@ main(int argc, char *argv[])
     return 1;
   }
 
+  unsigned long strcmp_calls = 0;
+
+  int size = 0;
+  char* buf = calloc(FILTER_SIZE + 1, sizeof(char));
+  assert(buf != NULL);
+
+  unsigned long passed_filter = 0;
+
+  unsigned long idx = 0;
   long l = 0;
   kseq_t* seq;
 
@@ -76,79 +124,136 @@ main(int argc, char *argv[])
 
   fprintf(stderr, "LOG -- reading seqs into memory\n");
   while ((l = kseq_read(seq)) >= 0) {
+    if ((++idx % 100000) == 0) {
+      fprintf(stderr, "%lu\r", idx);
+    }
     rseq = rseq_init(seq);
 
+    /* TODO print out too short seqs here */
     tommy_array_insert(seqs, rseq);
   }
   num_seqs = tommy_array_size(seqs);
 
+  int unique_seqs[num_seqs];
+
   fprintf(stderr, "LOG -- read %lu seqs\n", num_seqs);
 
   fprintf(stderr, "LOG -- dereplicating seqs\n");
-  for (i = 0; i < num_seqs - 1; ++i) {
-    if ((i % 10000) == 0) {
-      fprintf(stderr,
-              "LOG -- searching for seq: %lu of %lu (%.2f%%)\r",
-              i+1,
-              num_seqs,
-              (i+1) / (double)num_seqs * 100);
-    }
-    result = -2;
-    search_term = tommy_array_get(seqs, i);
-    for (j = i + 1; j < num_seqs; ++j) {
-      text = tommy_array_get(seqs, j);
 
-      result = ssef_search((unsigned char*)search_term->seq,
-                           search_term->len,
-                           (unsigned char*)text->seq,
-                           text->len);
-
-      if (result == -1) {
-        fprintf(stderr,
-                "WARN -- The sequence '%s' to search was too short! "
-                "Printing it anyway, but it may be a substring of another seq!\n",
-                search_term->head);
-        rseq_print(stdout, search_term);
-        ++seqs_too_short;
-        break;
-      } else if (result > 0) {
-        ++seqs_not_printed;
-        break; /* query i has a match with target j, stop searching for i */
-      }
-    }
-
-    if (result == 0) { /* seq i is unique */
-      ++seqs_printed;
-      rseq_print(stdout, search_term);
-    }
-  }
-
-  /* print out the last seq (longest one can't be a substring!) */
-  search_term = tommy_array_get(seqs, i);
-  rseq_print(stdout, search_term);
+  /* first one is longest, always unique */
+  rseq_print(stdout, tommy_array_get(seqs, 0));
+  unique_seqs[0] = 1;
   ++seqs_printed;
 
+  idx = 0;
+
+  for (i = 1; i < num_seqs; ++i) {
+    result = -2;
+    search_term = tommy_array_get(seqs, i);
+    if (search_term->len < 33 ) { /* 32 is hard limit for ssef */
+      rseq_print(stdout, search_term);
+      ++seqs_too_short;
+      ++seqs_printed;
+      unique_seqs[i] = 1;
+    } else {
+
+      for (j = 0; j < i; ++j) {
+        if (i % 100 == 0) {
+          fprintf(stderr,
+                  "comparing seq: %lu of %lu (%.2f%%)\r",
+                  i,
+                  num_seqs,
+                  (i) / (double)num_seqs * 100);
+        }
+
+        if (unique_seqs[j] == 1) { /* only check if j hasn't already
+                                      been eliminated */
+          text = tommy_array_get(seqs, j);
+
+          /* TODO is strcmp or hashing faster than this when lengths are
+             equal? */
+          if (text->len == search_term->len) {
+            ++strcmp_calls;
+            result = fast_compare(text->seq, search_term->seq, text->len);
+            if (result == 0) { /* match */
+              result = 1;
+            } else {
+              result = 0;
+            }
+          } else {
+            /* if the first 33 (32 is min search term for SSEF) bases in
+               search_term don't have a match, the whole thing wont have
+               a match */
+
+            /* TOOD make sure both are > 32 */
+            /* strncat(buf, search_term->seq, 33); */
+            if (search_term->len < FILTER_SIZE) {
+              size = 33;
+            } else {
+              size = FILTER_SIZE;
+            }
+            int z = 0;
+            for (z = 0; z < size; ++z) {
+              buf[z] = search_term->seq[z];
+            }
+            buf[z] = '\0';
+
+            result = hash3_search((unsigned char*)buf,
+                                  size,
+                                  (unsigned char*)text->seq,
+                                  text->len);
+
+            if (result > 0) {
+              ++passed_filter;
+              /* passed the first filter, test the whole pattern */
+              result = hash3_search((unsigned char*)search_term->seq,
+                                    search_term->len,
+                                    (unsigned char*)text->seq,
+                                    text->len);
+            }
+          }
+          assert(result != -1); /* the above len check should catch this */
+
+          if (result > 0) {
+            unique_seqs[i] = 0;
+            ++seqs_not_printed;
+            break; /* query i has a match with target j, stop searching for i */
+          }
+        } else {
+          continue;
+        }
+      }
+
+      if (result == 0) { /* seq i is unique */
+        rseq_print(stdout, search_term);
+        unique_seqs[i] = 1;
+        ++seqs_printed;
+      }
+    }
+  }
   fprintf(stderr,
-          "LOG -- searching for seq: %lu of %lu (%.2f%%)\n",
-          i+1,
-          num_seqs,
-          (i+1) / (double)num_seqs * 100);
-
-
-  double total = seqs_printed + seqs_not_printed;
+          "                                               "
+          "                                               \r");
 
   fprintf(stderr,
           "LOG -- seqs printed: %lu (%.2f%%)\n",
           seqs_printed,
-          seqs_printed / total * 100);
+          seqs_printed / (double)num_seqs * 100);
   fprintf(stderr,
           "LOG -- seqs not printed: %lu (%.2f%%)\n",
           seqs_not_printed,
-          seqs_not_printed / total * 100);
+          seqs_not_printed / (double)num_seqs * 100);
   fprintf(stderr,
           "LOG -- seqs too short (and printed): %lu (%.2f%%)\n",
           seqs_too_short,
-          seqs_too_short / total * 100);
+          seqs_too_short / (double)num_seqs * 100);
+  fprintf(stderr,
+          "LOG -- strcmp calls: %lu\n",
+          strcmp_calls);
+  fprintf(stderr,
+          "LOG -- passed filter (size %d): %lu\n",
+          FILTER_SIZE,
+          passed_filter);
 
   fprintf(stderr, "LOG -- freeing memory\n");
 
@@ -162,6 +267,8 @@ main(int argc, char *argv[])
   free(seqs);
 
   fprintf(stderr, "LOG -- done\n");
+
+  free(buf);
 
   return 0;
 }

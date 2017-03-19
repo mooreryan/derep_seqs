@@ -3,7 +3,8 @@ CFLAGS = -Wall -Wno-unused-function -g -O2
 SRC = src
 VENDOR = $(SRC)/vendor
 BIN = bin
-OBJS = $(VENDOR)/tommyarray.o $(VENDOR)/ssef.o $(SRC)/pointers.o $(SRC)/rseq.o
+OBJS = $(VENDOR)/tommyarray.o $(VENDOR)/ssef.o $(VENDOR)/hash3.o \
+       $(SRC)/pointers.o $(SRC)/rseq.o
 
 .PHONY: all
 all: derep_seqs

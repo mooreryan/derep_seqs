@@ -24,12 +24,14 @@ USA.
 #include "ssef.h"
 
 /* from https://www.dmi.unict.it/~faro/smart/algorithms.php?algorithm=SSEF&code=ssef */
+/* TODO is that len with '\0' or without? */
 int
 ssef_search(unsigned char* x, int Plen, unsigned char *y, int Tlen)
 {
   struct pointers_t* pointers = pointers_init();
 
   if (Plen < 32) {
+    pointers_destroy(pointers);
     return -1;
   }
 
@@ -93,7 +95,18 @@ ssef_search(unsigned char* x, int Plen, unsigned char *y, int Tlen)
       i = ((ptr16 - &T.data16[0])-last)*16;
       t = flist[filter];
       while(t) {
-        if (memcmp(x, &T.data[i+t->pos], Plen) == 0) count++;
+        if (memcmp(x, &T.data[i+t->pos], Plen) == 0) {
+          count++;
+
+          /* TODO this should save some cycles since we only need one
+             match for the pattern to be non-unique. Double check
+             it. */
+
+          pointers_destroy(pointers);
+          free(f);
+
+          return count;
+        }
         t = t->next;
       }
     }
