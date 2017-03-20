@@ -26,17 +26,22 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdlib.h>
 #include <assert.h>
 #include "kseq_helper.h"
+#include "vendor/tommyhashlin.h"
+#include "vendor/tommyarray.h"
 
 typedef struct rseq_t {
   char* head;
   char* seq;
   unsigned long len;
+  tommy_hashlin* kmers;
+  tommy_array* hashed_kmers;
+  unsigned long unique_kmers;
 } rseq_t;
 
 rseq_t* rseq_init(kseq_t* kseq);
 
 void
-rseq_destroy(rseq_t* rseq);
+rseq_destroy(rseq_t* rseq, tommy_foreach_func* free_func);
 
 void
 rseq_print(FILE* fstream, rseq_t* rseq);

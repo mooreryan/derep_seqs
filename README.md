@@ -35,3 +35,4 @@ Actually, it *used* to use it. For this, `hash3` seems to work better.
 
 - v0.1.0: First release
 - v0.2.0: Sort on decreasing seq length. Use greedy algorithm. Prefilter. Use hash3 instead of SSEF.
+- v0.3.0: Use hashing for prefiltering.

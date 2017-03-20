@@ -28,12 +28,14 @@
 #include "vendor/ssef.h"
 #include "vendor/hash3.h"
 #include "vendor/tommyarray.h"
+#include "vendor/tommyhash.h"
 #include "pointers.h"
 #include "rseq.h"
 #include "kseq_helper.h"
+#include "eigg_kmers.h"
 
-#define VERSION "0.2.0"
-#define FILTER_SIZE 100
+#define VERSION "0.3.0"
+#define WORD_SIZE 20
 
 /* from http://mgronhol.github.io/fast-strcmp/ */
 int fast_compare( const char *ptr0, const char *ptr1, int len ){
@@ -71,6 +73,63 @@ int fast_compare( const char *ptr0, const char *ptr1, int len ){
   return 0;
 }
 
+struct str_t {
+  char* str;
+  tommy_node node;
+};
+
+struct str_t*
+str_dup(struct str_t* str)
+{
+  struct str_t* new_str = malloc(sizeof(struct str_t));
+  assert(new_str != NULL);
+  new_str->str = strdup(str->str);
+
+  return new_str;
+}
+
+void
+str_destroy(struct str_t* str)
+{
+  free(str->str);
+  free(str);
+}
+
+int
+str_compare(const void* arg, const void* str)
+{
+  return strcmp((const char*)arg,
+                ((const struct str_t*)str)->str);
+}
+
+struct hashed_kmer_t {
+  tommy_uint32_t hashed_kmer;
+  tommy_node node;
+};
+
+int
+hashed_kmer_compare(const void* arg, const void* hk)
+{
+  return *(const tommy_uint32_t*)arg !=
+    ((const struct hashed_kmer_t*)hk)->hashed_kmer;
+}
+
+struct hashed_kmer_t*
+hashed_kmer_init(tommy_uint32_t hashed_val)
+{
+  struct hashed_kmer_t* hashed_kmer = malloc(sizeof(struct hashed_kmer_t));
+  assert(hashed_kmer != NULL);
+
+  hashed_kmer->hashed_kmer = hashed_val;
+
+  return hashed_kmer;
+}
+
+void
+hashed_kmer_destroy(struct hashed_kmer_t* hashed_kmer)
+{
+  free(hashed_kmer);
+}
 
 int
 main(int argc, char *argv[])
@@ -84,11 +143,14 @@ main(int argc, char *argv[])
     return 1;
   }
 
+  unsigned long kmer_i = 0;
+
   unsigned long strcmp_calls = 0;
 
-  int size = 0;
-  char* buf = calloc(FILTER_SIZE + 1, sizeof(char));
-  assert(buf != NULL);
+  /* char* buf = calloc(FILTER_SIZE + 1, sizeof(char)); */
+  /* assert(buf != NULL); */
+
+  struct str_t* str;
 
   unsigned long passed_filter = 0;
 
@@ -110,6 +172,8 @@ main(int argc, char *argv[])
   unsigned long seqs_not_printed = 0;
   unsigned long seqs_printed = 0;
 
+  struct Kmers* kmers;
+
   fp = gzopen(argv[1], "r");
   assert(fp);
 
@@ -120,14 +184,62 @@ main(int argc, char *argv[])
   assert(seqs != NULL);
   tommy_array_init(seqs);
 
+  struct hashed_kmer_t* hashed_kmer;
+  struct hashed_kmer_t* hashed_kmer_ret;
+  tommy_array* hashed_kmers;
+  tommy_hashlin* counting_hash;
+
   int result = 0;
 
   fprintf(stderr, "LOG -- reading seqs into memory\n");
   while ((l = kseq_read(seq)) >= 0) {
-    if ((++idx % 100000) == 0) {
+    if ((++idx % 100) == 0) {
       fprintf(stderr, "%lu\r", idx);
     }
     rseq = rseq_init(seq);
+
+    if (rseq->len > WORD_SIZE) {
+      kmers = eigg_kmers_new(rseq->seq, rseq->len, WORD_SIZE);
+
+      counting_hash = malloc(sizeof(tommy_hashlin));
+      assert(counting_hash != NULL);
+      tommy_hashlin_init(counting_hash);
+
+      hashed_kmers = malloc(sizeof(tommy_array));
+      assert(hashed_kmers != NULL);
+      tommy_array_init(hashed_kmers);
+
+      /* hash the kmers */
+      for (kmer_i = 0;
+           kmer_i < kmers->num_kmers;
+           ++kmer_i) {
+
+        /* TODO move this into the if */
+        hashed_kmer = hashed_kmer_init(tommy_hash_u32(0,
+                                                      kmers->kmers[kmer_i],
+                                                      WORD_SIZE));
+
+        hashed_kmer_ret = tommy_hashlin_search(counting_hash,
+                                               hashed_kmer_compare,
+                                               &hashed_kmer->hashed_kmer,
+                                               hashed_kmer->hashed_kmer);
+
+        if (!hashed_kmer_ret) {
+          tommy_hashlin_insert(counting_hash,
+                               &hashed_kmer->node,
+                               hashed_kmer,
+                               hashed_kmer->hashed_kmer);
+
+          tommy_array_insert(hashed_kmers, hashed_kmer);
+        } else {
+          free(hashed_kmer);
+        }
+      }
+
+      rseq->kmers = counting_hash;
+      rseq->hashed_kmers = hashed_kmers;
+      eigg_kmers_destroy(kmers);
+    }
 
     /* TODO print out too short seqs here */
     tommy_array_insert(seqs, rseq);
@@ -172,7 +284,7 @@ main(int argc, char *argv[])
 
           /* TODO is strcmp or hashing faster than this when lengths are
              equal? */
-          if (text->len == search_term->len) {
+          if (0 && text->len == search_term->len) {
             ++strcmp_calls;
             result = fast_compare(text->seq, search_term->seq, text->len);
             if (result == 0) { /* match */
@@ -185,24 +297,25 @@ main(int argc, char *argv[])
                search_term don't have a match, the whole thing wont have
                a match */
 
-            /* TOOD make sure both are > 32 */
-            /* strncat(buf, search_term->seq, 33); */
-            if (search_term->len < FILTER_SIZE) {
-              size = 33;
-            } else {
-              size = FILTER_SIZE;
-            }
-            int z = 0;
-            for (z = 0; z < size; ++z) {
-              buf[z] = search_term->seq[z];
-            }
-            buf[z] = '\0';
+            /* first, filter on hashed kmer vals */
+            for (kmer_i = 0; kmer_i < tommy_array_size(search_term->hashed_kmers);
+                 ++kmer_i) {
 
-            result = hash3_search((unsigned char*)buf,
-                                  size,
-                                  (unsigned char*)text->seq,
-                                  text->len);
+              hashed_kmer = tommy_array_get(search_term->hashed_kmers, kmer_i);
+              str = tommy_hashlin_search(text->kmers,
+                                         hashed_kmer_compare,
+                                         &hashed_kmer->hashed_kmer,
+                                         hashed_kmer->hashed_kmer);
 
+              if (str) {
+                result = 1;
+              } else {
+                result = 0;
+                break;
+              }
+            }
+            /* if i checked actual kmers instead of hash vals and they
+               all matched, I could avoid this check */
             if (result > 0) {
               ++passed_filter;
               /* passed the first filter, test the whole pattern */
@@ -252,7 +365,7 @@ main(int argc, char *argv[])
           strcmp_calls);
   fprintf(stderr,
           "LOG -- passed filter (size %d): %lu\n",
-          FILTER_SIZE,
+          WORD_SIZE,
           passed_filter);
 
   fprintf(stderr, "LOG -- freeing memory\n");
@@ -261,14 +374,15 @@ main(int argc, char *argv[])
   gzclose(fp);
 
   for (i = 0; i < num_seqs; ++i) {
-    rseq_destroy(tommy_array_get(seqs, i));
+    rseq_destroy(tommy_array_get(seqs, i),
+                 (tommy_foreach_func*)hashed_kmer_destroy);
   }
   tommy_array_done(seqs);
   free(seqs);
 
   fprintf(stderr, "LOG -- done\n");
 
-  free(buf);
+  /* free(buf); */
 
   return 0;
 }

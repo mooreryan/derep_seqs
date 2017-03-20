@@ -39,14 +39,31 @@ rseq_t* rseq_init(kseq_t* kseq)
   rseq->seq = strdup(kseq->seq.s);
   rseq->len = kseq->seq.l;
 
+  rseq->kmers = NULL;
+  rseq->hashed_kmers = NULL;
+  rseq->unique_kmers = 0;
+
   return rseq;
 }
 
 void
-rseq_destroy(rseq_t* rseq)
+rseq_destroy(rseq_t* rseq,
+             tommy_foreach_func* rseq_free_func)
 {
   free(rseq->head);
   free(rseq->seq);
+
+  if (rseq->kmers != NULL) {
+    tommy_hashlin_foreach(rseq->kmers, rseq_free_func);
+    tommy_hashlin_done(rseq->kmers);
+    free(rseq->kmers);
+  }
+
+  if (rseq->hashed_kmers != NULL) {
+    tommy_array_done(rseq->hashed_kmers);
+    free(rseq->hashed_kmers);
+  }
+
   free(rseq);
 }
 
