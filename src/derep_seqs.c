@@ -34,7 +34,7 @@
 #include "kseq_helper.h"
 #include "eigg_kmers.h"
 
-#define VERSION "0.3.0"
+#define VERSION "0.3.1"
 #define WORD_SIZE 20
 
 /* from http://mgronhol.github.io/fast-strcmp/ */
@@ -150,7 +150,7 @@ main(int argc, char *argv[])
   /* char* buf = calloc(FILTER_SIZE + 1, sizeof(char)); */
   /* assert(buf != NULL); */
 
-  struct str_t* str;
+  /* struct str_t* str; */
 
   unsigned long passed_filter = 0;
 
@@ -193,7 +193,7 @@ main(int argc, char *argv[])
 
   fprintf(stderr, "LOG -- reading seqs into memory\n");
   while ((l = kseq_read(seq)) >= 0) {
-    if ((++idx % 100) == 0) {
+    if ((++idx % 1000) == 0) {
       fprintf(stderr, "%lu\r", idx);
     }
     rseq = rseq_init(seq);
@@ -284,7 +284,7 @@ main(int argc, char *argv[])
 
           /* TODO is strcmp or hashing faster than this when lengths are
              equal? */
-          if (0 && text->len == search_term->len) {
+          if (text->len == search_term->len) {
             ++strcmp_calls;
             result = fast_compare(text->seq, search_term->seq, text->len);
             if (result == 0) { /* match */
@@ -302,12 +302,12 @@ main(int argc, char *argv[])
                  ++kmer_i) {
 
               hashed_kmer = tommy_array_get(search_term->hashed_kmers, kmer_i);
-              str = tommy_hashlin_search(text->kmers,
-                                         hashed_kmer_compare,
-                                         &hashed_kmer->hashed_kmer,
-                                         hashed_kmer->hashed_kmer);
+              hashed_kmer_ret = tommy_hashlin_search(text->kmers,
+                                                     hashed_kmer_compare,
+                                                     &hashed_kmer->hashed_kmer,
+                                                     hashed_kmer->hashed_kmer);
 
-              if (str) {
+              if (hashed_kmer_ret) {
                 result = 1;
               } else {
                 result = 0;
