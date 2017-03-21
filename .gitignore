@@ -3,3 +3,4 @@ src/*.o
 src/vendor/*.o
 test_files/final.contigs.*
 test_files/small*
+test_files/medium*
