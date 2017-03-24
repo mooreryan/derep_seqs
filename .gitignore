@@ -1,4 +1,5 @@
 bin/derep_seqs*
+derep_multi.cachegrind.txt
 src/*.o
 src/derep_seqs_*.c
 src/vendor/*.o
