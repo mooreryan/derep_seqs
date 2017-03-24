@@ -9,9 +9,10 @@
 #include "vendor/kseq.h"
 #include "vendor/tommyarray.h"
 
-#define VERSION "0.5.0"
-#define MIN_LEN 15
+#define VERSION "0.6.0"
 pthread_mutex_t mutex;
+unsigned long passed_prefilter = 0;
+unsigned long non_unique_seqs = 0;
 
 KSEQ_INIT(gzFile, gzread)
 
@@ -108,20 +109,25 @@ rseq_print(FILE* fstream, rseq_t* rseq)
 struct derep_arg_t {
   int worker_num;
   int num_workers;
+  int prefilter_len;
   tommy_array* seqs;
-  tommy_array* unique_seq_indices;
+  /* tommy_array* unique_seq_indices; */
   unsigned long num_seqs;
 };
 
 struct derep_arg_t*
-derep_arg_init(int worker_num, int num_workers,
-               tommy_array* seqs, unsigned long num_seqs)
+derep_arg_init(int worker_num,
+               int num_workers,
+               int prefilter_len,
+               tommy_array* seqs,
+               unsigned long num_seqs)
 {
   struct derep_arg_t* derep_arg = malloc(sizeof(struct derep_arg_t));
   assert(derep_arg != NULL);
 
   derep_arg->worker_num = worker_num;
   derep_arg->num_workers = num_workers;
+  derep_arg->prefilter_len = prefilter_len;
   derep_arg->seqs = seqs;
   derep_arg->num_seqs = num_seqs;
 
@@ -144,6 +150,7 @@ void*
 derep(void* derep_arg)
 {
 
+  int i = 0;
   int result = -2;
   unsigned long pattern_i = 0;
   unsigned long text_i = 0;
@@ -153,7 +160,7 @@ derep(void* derep_arg)
   struct rseq_t* pattern;
   struct rseq_t* text;
 
-  char* kmer = malloc((MIN_LEN + 1) * sizeof(char));
+  char* kmer = malloc((arg->prefilter_len + 1) * sizeof(char));
   assert(kmer != NULL);
 
   /* apple(WAIT); */
@@ -174,7 +181,7 @@ derep(void* derep_arg)
               "LOG -- Checking seq %lu\r",
               pattern_i);
     }
-    result = -2;
+    result = 0;
     pattern = derep_arg_get_seq(arg, pattern_i);
 
     for (text_i = 0; text_i < pattern_i; ++text_i) {
@@ -189,40 +196,34 @@ derep(void* derep_arg)
         }
       } else {
 
-        kmer[0] = pattern->seq[0];
-        kmer[1] = pattern->seq[1];
-        kmer[2] = pattern->seq[2];
-        kmer[3] = pattern->seq[3];
-        kmer[4] = pattern->seq[4];
-        kmer[5] = pattern->seq[5];
-        kmer[6] = pattern->seq[6];
-        kmer[7] = pattern->seq[7];
-        kmer[8] = pattern->seq[8];
-        kmer[9] = pattern->seq[9];
-        kmer[10] = pattern->seq[10];
-        kmer[11] = pattern->seq[11];
-        kmer[12] = pattern->seq[12];
-        kmer[13] = pattern->seq[13];
-        kmer[14] = pattern->seq[14];
-        kmer[15] = '\0';
+        for (i = 0; i < arg->prefilter_len; ++i) {
+          kmer[i] = pattern->seq[i];
+        }
+        kmer[i] = '\0';
 
-        /* search first MIN_LEN chars of pattern */
+        /* search first derep_arg->prefilter_len chars of pattern */
         result = hash3_search((unsigned char*)kmer,
-                              MIN_LEN,
+                              arg->prefilter_len,
                               (unsigned char*)text->seq,
                               text->len);
 
         if (result > 0) { /* prefilter match */
+          pthread_mutex_lock(&mutex);
+          ++passed_prefilter;
+          pthread_mutex_unlock(&mutex);
 
           /* search the whole pattern */
           result = hash3_search((unsigned char*)pattern->seq,
                                 pattern->len,
                                 (unsigned char*)text->seq,
                                 text->len);
-        }
+          if (result > 0) { /* match! pattern is not unique */
+            pthread_mutex_lock(&mutex);
+            ++non_unique_seqs;
+            pthread_mutex_unlock(&mutex);
 
-        if (result > 0) { /* match! pattern is not unique */
-          break;
+            break;
+          }
         }
       }
     }
@@ -242,9 +243,10 @@ derep(void* derep_arg)
 
 int main(int argc, char *argv[])
 {
-  if (argc < 3) {
+  if (argc < 4) {
     fprintf(stderr,
-            "Version: %s --- Usage: %s <num threads> <contigs.fasta>\n",
+            "Version: %s --- Usage: %s <num threads> <prefilter len> "
+            "<contigs.fasta>\n",
             VERSION,
             argv[0]);
 
@@ -254,9 +256,9 @@ int main(int argc, char *argv[])
   kseq_t* kseq;
   gzFile fp;
 
-  fp = gzopen(argv[2], "r");
+  fp = gzopen(argv[3], "r");
   if (!fp) {
-    fprintf(stderr, "ERROR -- Could not open %s\n", argv[2]);
+    fprintf(stderr, "ERROR -- Could not open %s\n", argv[3]);
     return 2;
   }
 
@@ -272,6 +274,7 @@ int main(int argc, char *argv[])
 
   unsigned long num_seqs = 0;
   unsigned long num_workers = strtol(argv[1], NULL, 10);
+  int prefilter_len = strtol(argv[2], NULL, 10);
 
   fprintf(stderr, "LOG -- num worker threads: %lu\n", num_workers);
   fprintf(stderr, "LOG -- infile: %s\n", argv[2]);
@@ -301,7 +304,7 @@ int main(int argc, char *argv[])
       fprintf(stderr, "LOG -- Reading seq %lu\r", idx);
     }
 
-    if (rseq->len < MIN_LEN) {
+    if (rseq->len < prefilter_len) {
       rseq_print(stdout, rseq);
       rseq_destroy(rseq);
     } else {
@@ -313,7 +316,7 @@ int main(int argc, char *argv[])
 
 
   for (i = 0; i < num_workers; ++i) {
-    derep_arg = derep_arg_init(i, num_workers, seqs, num_seqs);
+    derep_arg = derep_arg_init(i, num_workers, prefilter_len, seqs, num_seqs);
     ret_code = pthread_create(&threads[i], NULL, derep, derep_arg);
 
     if (ret_code) {
@@ -332,10 +335,17 @@ int main(int argc, char *argv[])
       return 4;
     }
   }
-  fprintf(stderr,
-          "LOG -- Checking seq %lu\n",
-          num_seqs);
+  /* TODO when short seqs are printed, this number wont match the
+     number read. Could be confusing for user. */
+  fprintf(stderr, "LOG -- Checking seq %lu\n", num_seqs);
 
+  fprintf(stderr,
+          "LOG -- %lu seqs passed the prefilter\n",
+          passed_prefilter);
+
+  fprintf(stderr,
+          "LOG -- %lu seqs were not unique\n",
+          non_unique_seqs);
 
   for (i = 0; i < num_seqs; ++i) {
     rseq_destroy(tommy_array_get(seqs, i));

@@ -19,15 +19,21 @@ This will install `derep_seqs` to the `bin` directory in the source directory. Y
 ## Usage
 
 ```
-derep_seqs <num worker threads> <seqs.fasta> > seqs.derep.fa
+derep_seqs <num worker threads> <prefilter length> <seqs.fasta> > seqs.derep.fa
 ```
+
+### Prefilter length
+
+Prefilter length is the length of the first kmer of the pattern sequence to check. The longer it is, the fewer sequences pass the prefilter when they really are not substrings (making the program faster). On the other hand, the if prefilter length is *too* long, then this benefit is outweighed by the longer substring to check.
+
+Around 60 seems to be a sweet spot.
 
 ## Example
 
 The fasta file must be sorted by increasing sequence length. The program `sort_fasta` (included in the `bin` directory) will do this for you.
 
 ```
-$ bin/derep_seqs 10 <(bin/sort_fasta contigs.fasta) > contigs.derep.fa
+$ bin/derep_seqs 10 60 <(bin/sort_fasta contigs.fasta) > contigs.derep.fa
 ```
 That's it!
 
@@ -46,3 +52,4 @@ That's it!
 - v0.3.0: Use hashing for prefiltering.
 - v0.4.0: Don't store hash vals...uses way less memory :) but it's slow again :(
 - v0.5.0: Use pthreads for multithreading!
+- v0.6.0: Make prefilter length a tunable option
