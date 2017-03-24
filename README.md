@@ -25,6 +25,14 @@ $ bin/derep_seqs <(bin/sort_fasta contigs.fasta) > contigs.derep.fa
 ```
 That's it!
 
+## Error codes
+
+- 0: Success
+- 1: Argument error
+- 2: Couldn't open a file
+- 3: Error creating thread
+- 4: Error joining thread
+
 ## Background
 
 Substring matching...there are a million algorithms for this problem. This [paper](https://arxiv.org/pdf/1012.2547v1.pdf) does a cool job of testing 80 or so of them with different pattern sizes and alphabet lengths. For nucleotide and amino acid alphabets, the authors found the SSEF algorithm to be the best for patterns at least 256 characters long. So, `derep_seqs` uses this nifty algorithm!

@@ -1,6 +1,8 @@
 bin/derep_seqs*
 src/*.o
+src/derep_seqs_*.c
 src/vendor/*.o
+src/vendor/*old*
 test_files/final.contigs.*
 test_files/small*
 test_files/medium*
