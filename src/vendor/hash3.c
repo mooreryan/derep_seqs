@@ -57,7 +57,9 @@ int hash3_search(unsigned char *x, int m, unsigned char *y, int n) {
     }
     sh = 1;
     while (sh != 0) {
+      /* TODO almost 50% of L1 cache misses occur at this line */
       h = x_y_cat[i-2];
+
       h = ((h<<1) + x_y_cat[i-1]);
       h = ((h<<1) + x_y_cat[i]);
       sh = shift[h];

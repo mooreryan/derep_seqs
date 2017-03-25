@@ -1,3 +1,6 @@
+#ifndef HASH3_H
+#define HASH3_H
+
 #define RANK3 3
 #define WSIZE 256
 #define OUTPUT(j) count++
@@ -8,3 +11,5 @@
 /* #include <stdio.h> */
 
 int hash3_search(unsigned char *x, int m, unsigned char *y, int n);
+
+#endif
